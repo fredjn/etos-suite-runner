@@ -16,8 +16,12 @@
 # limitations under the License.
 # -*- coding: utf-8 -*-
 """ETOS suite runner module."""
+import os
+import json
 import logging
 import traceback
+
+from etos_lib import ETOS
 
 from .esr import ESR
 
@@ -27,17 +31,50 @@ LOGGER = logging.getLogger(__name__)
 
 def main():
     """Entry point allowing external calls."""
-    esr = ESR()
+    etos = ETOS("ETOS Suite Runner", os.getenv("SOURCE_HOST"), "ETOS Suite Runner")
+    etos.config.set("results", [])
+    esr = ESR(etos)
     try:
         esr.run()  # Blocking
-    except:
+        results = etos.config.get("results") or []
+        result = None
+        for suite_result in results:
+            if suite_result.get("verdict") == "FAILED":
+                result = suite_result
+                # If the verdict on any main suite is FAILED, that is the verdict we set on the
+                # test run, which means that we can break the loop early in that case.
+                break
+            if suite_result.get("verdict") == "INCONCLUSIVE":
+                result = suite_result
+        if len(results) == 0:
+            result = {
+                "conclusion": "Inconclusive",
+                "verdict": "Inconclusive",
+                "description": "Got no results from ESR",
+            }
+        elif result is None:
+            # No suite failed, so lets just pick the first result
+            result = results[0]
+        # Convert, for example, INCONCLUSIVE to Inconclusive to match the controller result struct
+        # TODO Move the result struct to ETOS library and do this conversion on creation
+        result["conclusion"] = result["conclusion"].title().replace("_", "")
+        result["verdict"] = result["verdict"].title()
         with open("/dev/termination-log", "w", encoding="utf-8") as termination_log:
-            termination_log.write(traceback.format_exc())
+            json.dump(result, termination_log)
+        LOGGER.info("ESR result: %r", result)
+    except:
+        result = {
+            "conclusion": "Failed",
+            "verdict": "Inconclusive",
+            "description": traceback.format_exc(),
+        }
+        with open("/dev/termination-log", "w", encoding="utf-8") as termination_log:
+            json.dump(result, termination_log)
         raise
     finally:
         esr.etos.publisher.wait_for_unpublished_events()
         esr.etos.publisher.stop()
-    LOGGER.info("ESR Finished Executing.", extra={"user_log": True})
+    LOGGER.info("ESR Finished Executing.")
 
 
 def run():
