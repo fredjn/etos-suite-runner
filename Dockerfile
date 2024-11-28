@@ -12,6 +12,10 @@ RUN pip install --no-cache-dir /tmp/*.whl && groupadd -r etos && useradd -r -m -
 
 USER etos
 
+# TODO remove before PR
+ENV OTEL_COLLECTOR_HOST="http://ds-otel-collector-headless:4317"
+ENV MY_TEST_VAR="test"
+
 LABEL org.opencontainers.image.source=https://github.com/eiffel-community/etos-suite-runner
 LABEL org.opencontainers.image.authors=etos-maintainers@googlegroups.com
 LABEL org.opencontainers.image.licenses=Apache-2.0
