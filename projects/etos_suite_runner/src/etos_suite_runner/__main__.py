@@ -38,7 +38,7 @@ def main():
         result = esr.run()  # Blocking
         with open("/dev/termination-log", "w", encoding="utf-8") as termination_log:
             json.dump(result.model_dump(), termination_log)
-        LOGGER.info("ESR result: %r", result)
+        LOGGER.info("ESR result: %r", str(result))
     except:
         result = {
             "conclusion": "Failed",
