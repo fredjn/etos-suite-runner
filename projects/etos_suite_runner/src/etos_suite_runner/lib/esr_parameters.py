@@ -24,7 +24,7 @@ from typing import Union, Optional
 from etos_lib import ETOS
 from etos_lib.kubernetes.schemas.testrun import Suite
 from etos_lib.kubernetes.schemas.environment import Environment as EnvironmentSchema
-from etos_lib.kubernetes import Kubernetes, Environment
+from etos_lib.kubernetes import Kubernetes, Environment, TestRun
 from eiffellib.events import EiffelTestExecutionRecipeCollectionCreatedEvent
 from packageurl import PackageURL
 
@@ -160,14 +160,15 @@ class ESRParameters:
         """Download and return test batches."""
         with self.lock:
             if self.__test_suite is None:
-                tercc = json.loads(os.getenv("TERCC", "{}"))
-                self.logger.info(tercc)
-                if isinstance(tercc, list):
-                    self.__test_suite = [Suite(**suite) for suite in tercc]
+                if (testrun_id := os.getenv("TESTRUN")) is not None:
+                    testrun = TestRun(Kubernetes()).get(testrun_id)
+                    self.__test_suite = testrun.spec.suites
                 else:
+                    tercc = json.loads(os.getenv("TERCC", "{}"))
                     test_suite = self._eiffel_test_suite(tercc)
                     # The dataset is not necessary for the suite runner.
-                    self.__test_suite = [Suite.from_tercc(suite, {}) for suite in test_suite]
+                    test_suite = [Suite.from_tercc(suite, {}) for suite in test_suite]
+                    self.__test_suite = test_suite
         return self.__test_suite or []
 
     def _eiffel_test_suite(self, tercc: dict) -> list[dict]:
