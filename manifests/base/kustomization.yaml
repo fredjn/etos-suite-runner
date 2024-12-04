@@ -5,8 +5,8 @@ resources:
 configMapGenerator:
   - name: etos-suite-starter
     literals:
-      - SUITE_RUNNER=registry.nordix.org/eiffel/etos-suite-runner:0b1508ea
-      - LOG_LISTENER=registry.nordix.org/eiffel/etos-log-listener:0b1508ea
+      - SUITE_RUNNER=registry.nordix.org/eiffel/etos-suite-runner:450f1292
+      - LOG_LISTENER=registry.nordix.org/eiffel/etos-log-listener:450f1292
 patches:
   - target:
       name: etos-suite-runner
