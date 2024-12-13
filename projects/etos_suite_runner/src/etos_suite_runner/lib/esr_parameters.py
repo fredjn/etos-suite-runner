@@ -44,7 +44,7 @@ class ESRParameters:
         self.issuer = {"name": "ETOS Suite Runner"}
         self.environment_status = {"status": "NOT_STARTED", "error": None}
 
-    def set_status(self, status: str, error: str) -> None:
+    def set_status(self, status: str, error: Optional[str] = None) -> None:
         """Set environment provider status."""
         with self.lock:
             self.logger.debug("Setting environment status to %r, error %r", status, error)
@@ -58,6 +58,11 @@ class ESRParameters:
         """
         with self.lock:
             return self.environment_status.copy()
+
+    @property
+    def etos_controller(self) -> bool:
+        """Whether or not the suite runner is running as a part of the ETOS controller."""
+        return os.getenv("IDENTIFIER") is not None
 
     def _get_id(
         self,
@@ -112,7 +117,7 @@ class ESRParameters:
         taken from the Environment requests to the environment provider, and are
         used to correlate the environments created with the main test suites.
         """
-        if os.getenv("IDENTIFIER") is None:
+        if not self.etos_controller:
             return [str(uuid4()) for _ in range(len(self.test_suite))]
         return [request.spec.id for request in self.environment_requests]
 

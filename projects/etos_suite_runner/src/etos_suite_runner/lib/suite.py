@@ -21,7 +21,7 @@ import threading
 import time
 from typing import Iterator, Union
 
-from eiffellib.events import EiffelTestSuiteStartedEvent
+from eiffellib.events import EiffelTestSuiteStartedEvent, EiffelEnvironmentDefinedEvent
 from environment_provider.lib.registry import ProviderRegistry
 from environment_provider.environment import release_environment
 from etos_lib import ETOS
@@ -53,11 +53,12 @@ class SubSuite(OpenTelemetryBase):  # pylint:disable=too-many-instance-attribute
     released = False
     test_start_exception_caught = False
 
-    def __init__(self, etos: ETOS, environment: dict, main_suite_id: str) -> None:
+    def __init__(self, etos: ETOS, environment: dict, main_suite_id: str, controller: bool) -> None:
         """Initialize a sub suite."""
         self.etos = etos
         self.environment = environment
         self.main_suite_id = main_suite_id
+        self.controller = controller
         self.logger = logging.getLogger(f"SubSuite - {self.environment.get('name')}")
         self.logger.addFilter(DuplicateFilter(self.logger))
         self.otel_tracer = opentelemetry.trace.get_tracer(__name__)
@@ -213,7 +214,7 @@ class SubSuite(OpenTelemetryBase):  # pylint:disable=too-many-instance-attribute
             "Check in test environment %r", self.environment["id"], extra={"user_log": True}
         )
         # Running as part of ETOS controller
-        if os.getenv("IDENTIFIER") is not None:
+        if self.controller:
             success = self._delete_environment()
         else:
             success = self._release_environment(testrun_id)
@@ -268,16 +269,11 @@ class TestSuite(OpenTelemetryBase):  # pylint:disable=too-many-instance-attribut
         """Destructor."""
         opentelemetry.context.detach(self.otel_context_token)
 
-    @property
-    def sub_suite_environments(self) -> Iterator[dict]:
+    def _sub_suite_environments_from_eiffel(self) -> Iterator[dict]:
         """All sub suite environments from the environment provider.
 
         Each sub suite environment is an environment for the sub suites to execute in.
         """
-        self.logger.debug(
-            "Start collecting sub suite definitions (timeout=%ds).",
-            self.etos.config.get("WAIT_FOR_ENVIRONMENT_TIMEOUT"),
-        )
         environments = []
         timeout = time.time() + self.etos.config.get("WAIT_FOR_ENVIRONMENT_TIMEOUT")
         while time.time() < timeout:
@@ -300,7 +296,13 @@ class TestSuite(OpenTelemetryBase):  # pylint:disable=too-many-instance-attribut
             ):
                 if environment["meta"]["id"] not in environments:
                     environments.append(environment["meta"]["id"])
-                    yield environment
+                    sub_suite_definition = self._download_sub_suite(environment)
+                    if sub_suite_definition is None:
+                        raise EnvironmentProviderException(
+                            "URL to sub suite is missing", self.etos.config.get("task_id")
+                        )
+                    sub_suite_definition["id"] = environment["meta"]["id"]
+                    yield sub_suite_definition
             if activity_finished is not None:
                 if activity_finished["data"]["activityOutcome"]["conclusion"] != "SUCCESSFUL":
                     exc = EnvironmentProviderException(
@@ -317,6 +319,67 @@ class TestSuite(OpenTelemetryBase):  # pylint:disable=too-many-instance-attribut
             )
             self._record_exception(exc)
             raise exc
+
+    def _sub_suite_environments_from_kubernetes(self) -> Iterator[dict]:
+        """All sub suite environments from Kubernetes.
+
+        Each sub suite environment is an environment for the sub suites to execute in.
+        """
+        environments = []
+        timeout = time.time() + self.etos.config.get("WAIT_FOR_ENVIRONMENT_TIMEOUT")
+        while time.time() < timeout:
+            time.sleep(5)
+            for environment in self.params.environments:
+                if environment.spec.sub_suite_id in environments:
+                    continue
+
+                # Send eiffel event for the ETR.
+                event = EiffelEnvironmentDefinedEvent()
+                event.meta.event_id = environment.metadata.name
+                url = f"{os.getenv('ETOS_API')}/v1alpha/testrun/{environment.metadata.name}"
+                self.etos.events.send(
+                    event,
+                    {"CONTEXT": self.test_suite_started_id},
+                    {"name": environment.spec.name, "uri": url},
+                )
+
+                environments.append(environment.spec.sub_suite_id)
+                executor = environment.spec.executor
+                yield {
+                    "executor": executor,
+                    "id": environment.spec.sub_suite_id,
+                    "name": environment.spec.name,
+                }
+            status = self.params.get_status()
+            if status.get("status") == "FAILURE":
+                exc = EnvironmentProviderException(
+                    status.get("error"), self.etos.config.get("task_id")
+                )
+                self._record_exception(exc)
+                raise exc
+            if status.get("status") == "SUCCESS" and len(environments) > 0:
+                return
+        else:  # pylint:disable=useless-else-on-loop
+            exc = TimeoutError(
+                f"Timed out after {self.etos.config.get('WAIT_FOR_ENVIRONMENT_TIMEOUT')} seconds."
+            )
+            self._record_exception(exc)
+            raise exc
+
+    @property
+    def sub_suite_environments(self) -> Iterator[dict]:
+        """All sub suite environments from the environment provider.
+
+        Each sub suite environment is an environment for the sub suites to execute in.
+        """
+        self.logger.debug(
+            "Start collecting sub suite definitions (timeout=%ds).",
+            self.etos.config.get("WAIT_FOR_ENVIRONMENT_TIMEOUT"),
+        )
+        if self.params.etos_controller:
+            yield from self._sub_suite_environments_from_kubernetes()
+        else:
+            yield from self._sub_suite_environments_from_eiffel()
 
     @property
     def all_finished(self) -> bool:
@@ -400,17 +463,16 @@ class TestSuite(OpenTelemetryBase):  # pylint:disable=too-many-instance-attribut
                 self.test_suite_started.meta.event_id,
                 extra={"user_log": True},
             )
-            for sub_suite_environment in self.sub_suite_environments:
+            for sub_suite_definition in self.sub_suite_environments:
                 self.logger.info(
                     "Environment received. Starting up a sub suite", extra={"user_log": True}
                 )
-                sub_suite_definition = self._download_sub_suite(sub_suite_environment)
-                if sub_suite_definition is None:
-                    raise EnvironmentProviderException(
-                        "URL to sub suite is missing", self.etos.config.get("task_id")
-                    )
-                sub_suite_definition["id"] = sub_suite_environment["meta"]["id"]
-                sub_suite = SubSuite(self.etos, sub_suite_definition, self.test_suite_started_id)
+                sub_suite = SubSuite(
+                    self.etos,
+                    sub_suite_definition,
+                    self.test_suite_started_id,
+                    self.params.etos_controller,
+                )
                 self.sub_suites.append(sub_suite)
                 thread = threading.Thread(
                     target=sub_suite.start,

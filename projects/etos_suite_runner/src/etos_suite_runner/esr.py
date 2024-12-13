@@ -110,7 +110,7 @@ class ESR(OpenTelemetryBase):  # pylint:disable=too-many-instance-attributes
                             reason = condition.get("reason", "").lower()
                             if status == "false" and reason == "failed":
                                 failed.append(condition)
-                            if status == "false" and reason == "done":
+                            if status == "true" and reason == "done":
                                 success.append(condition)
                 if found and len(failed) > 0:
                     for condition in failed:
@@ -122,14 +122,13 @@ class ESR(OpenTelemetryBase):  # pylint:disable=too-many-instance-attributes
                     )
                     break
                 if found and len(success) == len(requests):
-                    self.params.set_status(
-                        "SUCCESS", "Successfully created an environment for test"
-                    )
+                    self.params.set_status("SUCCESS", None)
                     self.logger.info(
                         "Environment provider has finished creating an environment for test.",
                         extra={"user_log": True},
                     )
                     break
+        self.logger.info("Environmentrequest finished")
 
     def __request_environment(self, ids: list[str]) -> None:
         """Request an environment from the environment provider.
@@ -175,6 +174,7 @@ class ESR(OpenTelemetryBase):  # pylint:disable=too-many-instance-attributes
                     runners.
         :param otel_context_carrier: a dict carrying current OpenTelemetry context.
         """
+        FORMAT_CONFIG.identifier = self.params.testrun_id
         # OpenTelemetry contexts aren't propagated to threads automatically.
         # For this reason otel_context needs to be reinstantiated due to
         # this method running in a separate thread.
@@ -183,7 +183,7 @@ class ESR(OpenTelemetryBase):  # pylint:disable=too-many-instance-attributes
         try:
             # TestRun identifier, correlates to the TERCC that should be sent when
             # running in the ETOS Kubernetes controller environment.
-            if os.getenv("IDENTIFIER") is not None:
+            if self.params.etos_controller:
                 self.__environment_request_status()
             else:
                 self.__request_environment(ids)
@@ -246,7 +246,7 @@ class ESR(OpenTelemetryBase):  # pylint:disable=too-many-instance-attributes
             runner.start_suites_and_wait(suites)
         except EnvironmentProviderException as exc:
             # Not running as part of the ETOS Kubernetes controller environment
-            if os.getenv("IDENTIFIER") is None:
+            if not self.params.etos_controller:
                 self.logger.info("Release test environment.")
                 self._release_environment()
             self._record_exception(exc)
@@ -281,7 +281,7 @@ class ESR(OpenTelemetryBase):  # pylint:disable=too-many-instance-attributes
             self.logger.info("ETOS suite runner is starting up", extra={"user_log": True})
             # TestRun identifier, correlates to the TERCC that should be sent when
             # running in the ETOS Kubernetes controller environment.
-            if os.getenv("IDENTIFIER") is not None:
+            if self.params.etos_controller:
                 # We are probably running in the ETOS Kubernetes controller environment
                 self.logger.info("Checking TERCC")
                 if request_tercc(self.etos, testrun_id) is None:
