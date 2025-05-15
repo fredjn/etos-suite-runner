@@ -42,17 +42,6 @@ os.environ["ENVIRONMENT_PROVIDER_DISABLE_LOGGING"] = "true"
 
 LOGGER = logging.getLogger(__name__)
 
-# Setting OTEL_COLLECTOR_HOST will override the default OTEL collector endpoint.
-# This is needed because Suite Runner uses the cluster-level OpenTelemetry collector
-# instead of a sidecar collector.
-if os.getenv("OTEL_COLLECTOR_HOST"):
-    os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = os.getenv("OTEL_COLLECTOR_HOST")
-elif "OTEL_EXPORTER_OTLP_ENDPOINT" in os.environ:
-    LOGGER.debug("Environment variable OTEL_EXPORTER_OTLP_ENDPOINT not used.")
-    LOGGER.debug("To specify an OpenTelemetry collector host use OTEL_COLLECTOR_HOST.")
-    del os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"]
-
-
 if os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
     OTEL_RESOURCE = Resource.create(
         {
@@ -76,4 +65,4 @@ if os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
     setup_logging("ETOS Suite Runner", VERSION, otel_resource=OTEL_RESOURCE)
 else:
     setup_logging("ETOS Suite Runner", VERSION)
-    LOGGER.info("OpenTelemetry not enabled. OTEL_COLLECTOR_HOST not set.")
+    LOGGER.info("OpenTelemetry not enabled. OTEL_EXPORTER_OTLP_ENDPOINT not set.")
