@@ -5,8 +5,8 @@ resources:
 configMapGenerator:
   - name: etos-suite-starter
     literals:
-      - SUITE_RUNNER=ghcr.io/eiffel-community/etos-suite-runner:8f3bfe54
-      - LOG_LISTENER=ghcr.io/eiffel-community/etos-log-listener:8f3bfe54
+      - SUITE_RUNNER=ghcr.io/eiffel-community/etos-suite-runner:2def9bb9
+      - LOG_LISTENER=ghcr.io/eiffel-community/etos-log-listener:2def9bb9
 patches:
   - target:
       name: etos-suite-runner
