@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Test suite handler."""
+
 import json
 import logging
 import os
@@ -334,7 +335,7 @@ class TestSuite(OpenTelemetryBase):  # pylint:disable=too-many-instance-attribut
         timeout = time.time() + self.etos.config.get("WAIT_FOR_ENVIRONMENT_TIMEOUT")
         while time.time() < timeout:
             time.sleep(5)
-            for environment in self.params.environments:
+            for environment in self.params.environments(self.test_suite_started_id):
                 if environment.spec.sub_suite_id in environments:
                     continue
 
