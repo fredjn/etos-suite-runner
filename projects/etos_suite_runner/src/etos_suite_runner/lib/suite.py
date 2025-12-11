@@ -17,13 +17,12 @@
 
 import json
 import logging
-import os
 import threading
 import time
 from typing import Iterator, Union
 
 import opentelemetry
-from eiffellib.events import EiffelEnvironmentDefinedEvent, EiffelTestSuiteStartedEvent
+from eiffellib.events import EiffelTestSuiteStartedEvent
 from environment_provider.environment import release_environment
 from environment_provider.lib.registry import ProviderRegistry
 from etos_lib import ETOS
@@ -338,16 +337,6 @@ class TestSuite(OpenTelemetryBase):  # pylint:disable=too-many-instance-attribut
             for environment in self.params.environments(self.test_suite_started_id):
                 if environment.spec.sub_suite_id in environments:
                     continue
-
-                # Send eiffel event for the ETR.
-                event = EiffelEnvironmentDefinedEvent()
-                event.meta.event_id = environment.metadata.name
-                url = f"{os.getenv('ETOS_API')}/v1alpha/testrun/{environment.metadata.name}"
-                self.etos.events.send(
-                    event,
-                    {"CONTEXT": self.test_suite_started_id},
-                    {"name": environment.spec.name, "uri": url},
-                )
 
                 environments.append(environment.spec.sub_suite_id)
                 executor = environment.spec.executor
